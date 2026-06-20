@@ -1,0 +1,4 @@
+# Ignorar carpetas de compilacion y dependencias
+out/
+.gradle/
+.vscode/
