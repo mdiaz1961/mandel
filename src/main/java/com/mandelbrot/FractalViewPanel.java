@@ -48,8 +48,8 @@ public class FractalViewPanel extends JPanel {
     /** Estado actual de la vista (centro y escala). */
     private final ViewState viewState = new ViewState();
 
-    /** Motor de cálculo de iteraciones. */
-    private final MandelbrotCalculator calculator = new MandelbrotCalculator();
+    /** Motor de cálculo de iteraciones (implementación seleccionada por la propiedad {@code calculator}). */
+    private final FractalCalculator calculator = FractalCalculator.create();
 
     /** Paleta de colores compartida. */
     private final ColorPalette colorPalette;
@@ -424,24 +424,20 @@ public class FractalViewPanel extends JPanel {
             double juliaReal,
             double juliaImaginary
     ) {
+        calculator.setJuliaConstant(juliaReal, juliaImaginary);
         int maxIter = calculator.getMaxIterations();
-        MandelbrotCalculator localCalculator = new MandelbrotCalculator(maxIter);
-        localCalculator.setJuliaConstant(juliaReal, juliaImaginary);
 
-        IntStream.range(0, height).parallel().forEach(y -> {
-            if (Thread.currentThread().isInterrupted()) {
-                return;
-            }
-            double imaginary = view.pixelToImaginary(y, height);
+        int[][] iterations = fractalType == FractalType.MANDELBROT
+                ? calculator.computeMandelbrot(width, height, view)
+                : calculator.computeJulia(width, height, view);
+
+        for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                double real = view.pixelToReal(x, width);
-                int iterations = fractalType == FractalType.MANDELBROT
-                    ? localCalculator.computeMandelbrot(real, imaginary)
-                    : localCalculator.computeJulia(real, imaginary);
-                Color color = colorPalette.getColor(iterations, maxIter);
+                int iteration = iterations[y][x];
+                Color color = colorPalette.getColor(iteration, maxIter);
                 image.setRGB(x, y, color.getRGB());
             }
-        });
+        }
     }
 
     public void animateToInitialView() {

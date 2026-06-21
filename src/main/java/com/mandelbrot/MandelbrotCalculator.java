@@ -14,7 +14,7 @@ package com.mandelbrot;
  * @author Mandelbrot Explorer
  * @version 1.0
  */
-public class MandelbrotCalculator {
+public class MandelbrotCalculator implements FractalCalculator {
 
     /** Radio al cual se considera que un punto ha escapado del conjunto. */
     private static final double ESCAPE_RADIUS = 2.0;
@@ -29,10 +29,10 @@ public class MandelbrotCalculator {
     private final int maxIterations;
 
     /** Parte real del parámetro {@code c} usado en el conjunto de Julia. */
-    private double juliaReal;
+    private volatile double juliaReal;
 
     /** Parte imaginaria del parámetro {@code c} usado en el conjunto de Julia. */
-    private double juliaImaginary;
+    private volatile double juliaImaginary;
 
     /**
      * Crea un calculador con el máximo de iteraciones por defecto.
@@ -84,25 +84,41 @@ public class MandelbrotCalculator {
     }
 
     /**
-     * Calcula iteraciones para el conjunto de Mandelbrot en el punto {@code c}.
+     * Calcula el número de iteraciones para cada píxel de una vista de Mandelbrot.
      *
-     * @param real      parte real de {@code c}
-     * @param imaginary parte imaginaria de {@code c}
-     * @return número de iteraciones realizadas (igual a {@code maxIterations} si no escapó)
+     * @param width  anchura de la imagen en píxeles
+     * @param height altura de la imagen en píxeles
+     * @param view   estado de vista con centro y escala
+     * @return matriz de iteraciones de tamaño {@code [height][width]}
      */
-    public int computeMandelbrot(double real, double imaginary) {
-        return iterate(0.0, 0.0, real, imaginary);
+    public int[][] computeMandelbrot(int width, int height, ViewState view) {
+        return computeFractal(width, height, view, false);
     }
 
     /**
-     * Calcula iteraciones para el conjunto de Julia con {@code z₀} en el píxel.
+     * Calcula el número de iteraciones para cada píxel de una vista de Julia.
      *
-     * @param real      parte real de {@code z₀}
-     * @param imaginary parte imaginaria de {@code z₀}
-     * @return número de iteraciones realizadas (igual a {@code maxIterations} si no escapó)
+     * @param width  anchura de la imagen en píxeles
+     * @param height altura de la imagen en píxeles
+     * @param view   estado de vista con centro y escala
+     * @return matriz de iteraciones de tamaño {@code [height][width]}
      */
-    public int computeJulia(double real, double imaginary) {
-        return iterate(real, imaginary, juliaReal, juliaImaginary);
+    public int[][] computeJulia(int width, int height, ViewState view) {
+        return computeFractal(width, height, view, true);
+    }
+
+    private int[][] computeFractal(int width, int height, ViewState view, boolean julia) {
+        int[][] iterations = new int[height][width];
+        for (int y = 0; y < height; y++) {
+            double imaginary = view.pixelToImaginary(y, height);
+            for (int x = 0; x < width; x++) {
+                double real = view.pixelToReal(x, width);
+                iterations[y][x] = julia
+                        ? iterate(real, imaginary, juliaReal, juliaImaginary)
+                        : iterate(0.0, 0.0, real, imaginary);
+            }
+        }
+        return iterations;
     }
 
     /**
@@ -133,12 +149,4 @@ public class MandelbrotCalculator {
         return maxIterations;
     }
 
-    /**
-     * Resultado inmutable de una iteración de escape para un punto.
-     *
-     * @param iterations      número entero de iteraciones realizadas
-     * @param smoothIteration conteo suavizado para coloreado continuo
-     * @param escaped         indica si el punto escapó del radio límite
-     */
-    // IterationResult removed: compute methods now return an int with iterations.
-}
+   }

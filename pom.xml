@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.mandelbrot</groupId>
+    <artifactId>mandelbrot-explorer</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>Mandelbrot Explorer</name>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!--
+            Implementación del calculador de fractales.
+            Valores posibles: cpu | opencl
+            Uso desde línea de comandos: mvn exec:java -Dcalculator.type=opencl
+        -->
+        <calculator.type>cpu</calculator.type>
+    </properties>
+
+    <dependencies>
+        <!-- Bindings Java para OpenCL (GPU). El fallback a CPU es automático si OpenCL no está disponible. -->
+        <dependency>
+            <groupId>org.jocl</groupId>
+            <artifactId>jocl</artifactId>
+            <version>2.0.5</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!-- Compilador Java 17 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+
+            <!--
+                Ejecutar la aplicación con Maven:
+                  mvn exec:java                           → CPU (por defecto)
+                  mvn exec:java -Dcalculator.type=opencl  → GPU via OpenCL
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <mainClass>com.mandelbrot.Main</mainClass>
+                    <systemProperties>
+                        <systemProperty>
+                            <key>calculator</key>
+                            <value>${calculator.type}</value>
+                        </systemProperty>
+                    </systemProperties>
+                </configuration>
+            </plugin>
+
+            <!--
+                Empaqueta un fat-JAR con todas las dependencias (incluido JOCL).
+                Generado en: target/mandelbrot-explorer-1.0-SNAPSHOT.jar
+                  java -Dcalculator=cpu    -jar target/mandelbrot-explorer-1.0-SNAPSHOT.jar
+                  java -Dcalculator=opencl -jar target/mandelbrot-explorer-1.0-SNAPSHOT.jar
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>com.mandelbrot.Main</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>
