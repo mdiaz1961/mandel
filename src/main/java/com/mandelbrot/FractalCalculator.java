@@ -75,8 +75,9 @@ public interface FractalCalculator {
      *
      * @return instancia lista para calcular fractales
      */
+    static boolean openCl=true;
     static FractalCalculator create() {
-        if ("opencl".equalsIgnoreCase(System.getProperty("calculator"))) {
+        if (openCl) {
             return new OpenCLFractalCalculator();
         }
         return new MandelbrotCalculator();
