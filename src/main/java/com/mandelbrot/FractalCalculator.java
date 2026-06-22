@@ -30,24 +30,26 @@ public interface FractalCalculator {
     void setJuliaConstant(double real, double imaginary);
 
     /**
-     * Calcula las iteraciones de escape para cada píxel de una vista de Mandelbrot.
+     * Calcula las iteraciones de escape para cada píxel de la fila {@code y} en una vista de Mandelbrot.
      *
+     * @param y      fila de píxeles a calcular
      * @param width  ancho de la imagen en píxeles
      * @param height alto de la imagen en píxeles
      * @param view   estado de la vista (centro y escala)
-     * @return matriz {@code [height][width]} con el número de iteraciones por píxel
+     * @return arreglo {@code [width]} con el número de iteraciones por píxel de la fila
      */
-    int[][] computeMandelbrot(int width, int height, ViewState view);
+    int[] computeMandelbrot(int y, int width, int height, ViewState view);
 
     /**
-     * Calcula las iteraciones de escape para cada píxel de una vista de Julia.
+     * Calcula las iteraciones de escape para cada píxel de la fila {@code y} en una vista de Julia.
      *
+     * @param y      fila de píxeles a calcular
      * @param width  ancho de la imagen en píxeles
      * @param height alto de la imagen en píxeles
      * @param view   estado de la vista (centro y escala)
-     * @return matriz {@code [height][width]} con el número de iteraciones por píxel
+     * @return arreglo {@code [width]} con el número de iteraciones por píxel de la fila
      */
-    int[][] computeJulia(int width, int height, ViewState view);
+    int[] computeJulia(int y, int width, int height, ViewState view);
 
     /**
      * Libera los recursos nativos asociados a esta implementación (por ejemplo, el contexto OpenCL).

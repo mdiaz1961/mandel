@@ -84,41 +84,41 @@ public class MandelbrotCalculator implements FractalCalculator {
     }
 
     /**
-     * Calcula el número de iteraciones para cada píxel de una vista de Mandelbrot.
+     * Calcula el número de iteraciones para cada píxel de la fila {@code y} en una vista de Mandelbrot.
      *
+     * @param y      fila de píxeles a calcular
      * @param width  anchura de la imagen en píxeles
      * @param height altura de la imagen en píxeles
      * @param view   estado de vista con centro y escala
-     * @return matriz de iteraciones de tamaño {@code [height][width]}
+     * @return arreglo de iteraciones de tamaño {@code [width]}
      */
-    public int[][] computeMandelbrot(int width, int height, ViewState view) {
-        return computeFractal(width, height, view, false);
+    public int[] computeMandelbrot(int y, int width, int height, ViewState view) {
+        double imaginary = view.pixelToImaginary(y, height);
+        int[] row = new int[width];
+        for (int x = 0; x < width; x++) {
+            double real = view.pixelToReal(x, width);
+            row[x] = iterate(0.0, 0.0, real, imaginary);
+        }
+        return row;
     }
 
     /**
-     * Calcula el número de iteraciones para cada píxel de una vista de Julia.
+     * Calcula el número de iteraciones para cada píxel de la fila {@code y} en una vista de Julia.
      *
+     * @param y      fila de píxeles a calcular
      * @param width  anchura de la imagen en píxeles
      * @param height altura de la imagen en píxeles
      * @param view   estado de vista con centro y escala
-     * @return matriz de iteraciones de tamaño {@code [height][width]}
+     * @return arreglo de iteraciones de tamaño {@code [width]}
      */
-    public int[][] computeJulia(int width, int height, ViewState view) {
-        return computeFractal(width, height, view, true);
-    }
-
-    private int[][] computeFractal(int width, int height, ViewState view, boolean julia) {
-        int[][] iterations = new int[height][width];
-        for (int y = 0; y < height; y++) {
-            double imaginary = view.pixelToImaginary(y, height);
-            for (int x = 0; x < width; x++) {
-                double real = view.pixelToReal(x, width);
-                iterations[y][x] = julia
-                        ? iterate(real, imaginary, juliaReal, juliaImaginary)
-                        : iterate(0.0, 0.0, real, imaginary);
-            }
+    public int[] computeJulia(int y, int width, int height, ViewState view) {
+        double imaginary = view.pixelToImaginary(y, height);
+        int[] row = new int[width];
+        for (int x = 0; x < width; x++) {
+            double real = view.pixelToReal(x, width);
+            row[x] = iterate(real, imaginary, juliaReal, juliaImaginary);
         }
-        return iterations;
+        return row;
     }
 
     /**

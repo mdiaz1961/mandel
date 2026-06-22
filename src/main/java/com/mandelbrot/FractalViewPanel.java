@@ -6,6 +6,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
 import java.util.Locale;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -14,13 +15,15 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.stream.IntStream;
 
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 
 /**
  * Panel de visualización de un fractal (Mandelbrot o Julia) con zoom, pan y hint de coordenadas.
@@ -61,8 +64,18 @@ public class FractalViewPanel extends JPanel {
     private final ExecutorService renderExecutor =
             Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
+    /** Pool de hilos para paralelizar el render de filas. */
+    private final ExecutorService rowRenderExecutor =
+            Executors.newFixedThreadPool(8);
+
     /** Tarea de renderizado en curso, si existe. */
     private Future<?> currentRenderTask;
+
+    /** Estado de la vista correspondiente a la última imagen renderizada. */
+    private volatile ViewState lastRenderedViewState = viewState.copy();
+
+    /** Temporizador para agrupar eventos de la rueda y evitar renders repetidos. */
+    private final Timer renderDebounceTimer;
 
     /** Posición del ratón al iniciar un arrastre para pan. */
     private Point lastDragPoint;
@@ -84,6 +97,10 @@ public class FractalViewPanel extends JPanel {
         this.colorPalette = colorPalette;
         setBackground(Color.BLACK);
         setFocusable(true);
+        // timer: espera 150 ms tras el último evento de rueda antes de lanzar render
+        renderDebounceTimer = new Timer(150, e -> requestRender());
+        renderDebounceTimer.setRepeats(false);
+
         registerMouseListeners();
         registerResizeListener();
         if (fractalType == FractalType.JULIA) {
@@ -224,6 +241,9 @@ public class FractalViewPanel extends JPanel {
         currentRenderTask = renderExecutor.submit(() -> {
             renderFractal(targetImage, snapshot, width, height, juliaReal, juliaImaginary);
             if (!Thread.currentThread().isInterrupted()) {
+                // Guardar el estado con el que se generó esta imagen para permitir
+                // un dibujo transformado mientras el usuario sigue haciendo zoom.
+                lastRenderedViewState = snapshot;
                 SwingUtilities.invokeLater(this::repaint);
             }
         });
@@ -276,7 +296,14 @@ public class FractalViewPanel extends JPanel {
                     int deltaY = event.getY() - lastDragPoint.y;
                     viewState.pan(deltaX, deltaY);
                     lastDragPoint = event.getPoint();
-                    requestRender();
+                    // Mostrar respuesta visual inmediata y agrupar el render pesado
+                    // usando el temporizador de debounce.
+                    repaint();
+                    if (renderDebounceTimer.isRunning()) {
+                        renderDebounceTimer.restart();
+                    } else {
+                        renderDebounceTimer.start();
+                    }
                 }
             }
         });
@@ -311,7 +338,15 @@ public class FractalViewPanel extends JPanel {
     private void handleZoom(MouseWheelEvent event) {
         double factor = event.getWheelRotation() < 0 ? ZOOM_FACTOR : 1.0 / ZOOM_FACTOR;
         viewState.zoomAt(event.getX(), event.getY(), getWidth(), getHeight(), factor);
-        requestRender();
+        // Repaint inmediato para mostrar un escalado visual rápido de la imagen
+        // renderizada previamente y diferir el render pesado hasta que el usuario
+        // deje de girar la rueda (debounce).
+        repaint();
+        if (renderDebounceTimer.isRunning()) {
+            renderDebounceTimer.restart();
+        } else {
+            renderDebounceTimer.start();
+        }
     }
 
     @Override
@@ -329,7 +364,40 @@ public class FractalViewPanel extends JPanel {
         Graphics2D g2d = (Graphics2D) graphics;
 
         if (fractalImage != null) {
-            g2d.drawImage(fractalImage, 0, 0, null);
+            // Si la última imagen renderizada corresponde a un estado distinto
+            // al actual, aplicamos una transformación afín para escalar y desplazar
+            // la imagen mostrada de forma interactiva mientras el usuario mueve el ratón.
+            ViewState last = lastRenderedViewState;
+            boolean viewChanged = last != null && last.getScale() > 0 && (
+                    last.getScale() != viewState.getScale()
+                            || last.getCenterX() != viewState.getCenterX()
+                            || last.getCenterY() != viewState.getCenterY());
+            if (viewChanged) {
+                int w = getWidth();
+                int h = getHeight();
+                double scaleRatio = last.getScale() / viewState.getScale();
+
+                double dxWorld = last.getCenterX() - viewState.getCenterX();
+                double dyWorld = last.getCenterY() - viewState.getCenterY();
+                double dxPixels = dxWorld / viewState.getScale();
+                double dyPixels = dyWorld / viewState.getScale();
+
+                AffineTransform at = new AffineTransform();
+                // trasladar al centro del panel
+                at.translate(w / 2.0, h / 2.0);
+                // aplicar desplazamiento del centro en pixeles
+                at.translate(dxPixels, dyPixels);
+                // escalar respecto al centro
+                at.scale(scaleRatio, scaleRatio);
+                // trasladar para dibujar la imagen (la imagen tiene origen en 0,0)
+                at.translate(-w / 2.0, -h / 2.0);
+
+                Graphics2D g2 = (Graphics2D) g2d.create();
+                g2.drawImage(fractalImage, at, null);
+                g2.dispose();
+            } else {
+                g2d.drawImage(fractalImage, 0, 0, null);
+            }
         }
 
         drawPanelTitle(g2d);
@@ -427,15 +495,31 @@ public class FractalViewPanel extends JPanel {
         calculator.setJuliaConstant(juliaReal, juliaImaginary);
         int maxIter = calculator.getMaxIterations();
 
-        int[][] iterations = fractalType == FractalType.MANDELBROT
-                ? calculator.computeMandelbrot(width, height, view)
-                : calculator.computeJulia(width, height, view);
+        int threadCount = 8;
+        int rowsPerTask = Math.max(1, height / threadCount);
+        List<Future<?>> rowTasks = new ArrayList<>(threadCount);
 
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int iteration = iterations[y][x];
-                Color color = colorPalette.getColor(iteration, maxIter);
-                image.setRGB(x, y, color.getRGB());
+        for (int startY = 0; startY < height; startY += rowsPerTask) {
+            final int taskStartY = startY;
+            final int taskEndY = Math.min(height, taskStartY + rowsPerTask);
+            rowTasks.add(rowRenderExecutor.submit(() -> {
+                for (int rowY = taskStartY; rowY < taskEndY; rowY++) {
+                    int[] row = fractalType == FractalType.MANDELBROT
+                            ? calculator.computeMandelbrot(rowY, width, height, view)
+                            : calculator.computeJulia(rowY, width, height, view);
+                    for (int x = 0; x < width; x++) {
+                        image.setRGB(x, rowY, colorPalette.getColor(row[x], maxIter).getRGB());
+                    }
+                }
+            }));
+        }
+
+        for (Future<?> rowTask : rowTasks) {
+            try {
+                rowTask.get();
+            } catch (Exception e) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
     }
@@ -465,23 +549,26 @@ public class FractalViewPanel extends JPanel {
         }  
     }
 
-    private void animateTo(double centerX, double centerY, double scale,int frames) {
+    private void animateTo(double centerX, double centerY, double scale, int frames) {
         double dx = (centerX - viewState.getCenterX()) / frames;
         double dy = (centerY - viewState.getCenterY()) / frames;
         double ds = (scale - viewState.getScale()) / frames;
-        for (int i = 0; i < frames; i++) {
-            viewState.move(dx,dy,ds);
-            requestRender();
-            
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
 
-            this.paintImmediately(0, 0, getWidth(), getHeight());
-        }
+        // Asegurar que no haya renders debounced anteriores en vuelo.
+        renderDebounceTimer.stop();
 
+        final int[] currentFrame = {0};
+        Timer animationTimer = new Timer(16, event -> {
+            currentFrame[0]++;
+            viewState.move(dx, dy, ds);
+            repaint();
+
+            if (currentFrame[0] >= frames) {
+                ((Timer) event.getSource()).stop();
+                requestRender();
+            }
+        });
+        animationTimer.setRepeats(true);
+        animationTimer.start();
     }
 }
