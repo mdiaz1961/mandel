@@ -30,26 +30,34 @@ public interface FractalCalculator {
     void setJuliaConstant(double real, double imaginary);
 
     /**
-     * Calcula las iteraciones de escape para cada píxel de la fila {@code y} en una vista de Mandelbrot.
+     * Calcula las iteraciones de escape para el rectángulo de píxeles
+     * {@code [xIni, xFin) × [yIni, yFin)} sobre una vista de Mandelbrot.
      *
-     * @param y      fila de píxeles a calcular
-     * @param width  ancho de la imagen en píxeles
-     * @param height alto de la imagen en píxeles
+     * @param xIni   columna inicial (inclusive)
+     * @param xFin   columna final   (exclusive)
+     * @param yIni   fila inicial    (inclusive)
+     * @param yFin   fila final      (exclusive)
+     * @param width  ancho total de la imagen en píxeles
+     * @param height alto total de la imagen en píxeles
      * @param view   estado de la vista (centro y escala)
-     * @return arreglo {@code [width]} con el número de iteraciones por píxel de la fila
+     * @return matriz {@code [yFin-yIni][xFin-xIni]} con las iteraciones de cada píxel
      */
-    int[] computeMandelbrot(int y, int width, int height, ViewState view);
+    int[][] computeMandelbrot(int xIni, int xFin, int yIni, int yFin, int width, int height, ViewState view);
 
     /**
-     * Calcula las iteraciones de escape para cada píxel de la fila {@code y} en una vista de Julia.
+     * Calcula las iteraciones de escape para el rectángulo de píxeles
+     * {@code [xIni, xFin) × [yIni, yFin)} sobre una vista de Julia.
      *
-     * @param y      fila de píxeles a calcular
-     * @param width  ancho de la imagen en píxeles
-     * @param height alto de la imagen en píxeles
+     * @param xIni   columna inicial (inclusive)
+     * @param xFin   columna final   (exclusive)
+     * @param yIni   fila inicial    (inclusive)
+     * @param yFin   fila final      (exclusive)
+     * @param width  ancho total de la imagen en píxeles
+     * @param height alto total de la imagen en píxeles
      * @param view   estado de la vista (centro y escala)
-     * @return arreglo {@code [width]} con el número de iteraciones por píxel de la fila
+     * @return matriz {@code [yFin-yIni][xFin-xIni]} con las iteraciones de cada píxel
      */
-    int[] computeJulia(int y, int width, int height, ViewState view);
+    int[][] computeJulia(int xIni, int xFin, int yIni, int yFin, int width, int height, ViewState view);
 
     /**
      * Libera los recursos nativos asociados a esta implementación (por ejemplo, el contexto OpenCL).

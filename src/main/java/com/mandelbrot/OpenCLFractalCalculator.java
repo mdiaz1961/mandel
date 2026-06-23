@@ -46,21 +46,27 @@ public class OpenCLFractalCalculator implements FractalCalculator {
 
     // Kernel OpenCL con precisión doble (requiere extensión cl_khr_fp64).
     // Dos kernels en la misma fuente: "mandelbrot" y "julia".
+    // Kernels 2D: get_global_id(0)=lx (col en region), get_global_id(1)=ly (fila en region).
+    // px = xIni + lx,  py = yIni + ly  →  resultado en result[ly * regionW + lx].
     private static final String KERNEL_SOURCE =
         "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n"
         + "\n"
         + "__kernel void mandelbrot(\n"
         + "    __global int* result,\n"
+        + "    const int    xIni,\n"
+        + "    const int    yIni,\n"
+        + "    const int    regionW,\n"
         + "    const int    width,\n"
         + "    const int    height,\n"
-        + "    const int    py,\n"
         + "    const double centerX,\n"
         + "    const double centerY,\n"
         + "    const double scale,\n"
         + "    const int    maxIterations)\n"
         + "{\n"
-        + "    int px = get_global_id(0);\n"
-        + "    if (px >= width) return;\n"
+        + "    int lx = get_global_id(0);\n"
+        + "    int ly = get_global_id(1);\n"
+        + "    int px = xIni + lx;\n"
+        + "    int py = yIni + ly;\n"
         + "    double cReal = centerX + (px - width  * 0.5) * scale;\n"
         + "    double cImag = centerY + (py - height * 0.5) * scale;\n"
         + "    double zr = 0.0, zi = 0.0;\n"
@@ -73,14 +79,16 @@ public class OpenCLFractalCalculator implements FractalCalculator {
         + "        zr = zr2 - zi2 + cReal;\n"
         + "        iter++;\n"
         + "    }\n"
-        + "    result[px] = iter;\n"
+        + "    result[ly * regionW + lx] = iter;\n"
         + "}\n"
         + "\n"
         + "__kernel void julia(\n"
         + "    __global int* result,\n"
+        + "    const int    xIni,\n"
+        + "    const int    yIni,\n"
+        + "    const int    regionW,\n"
         + "    const int    width,\n"
         + "    const int    height,\n"
-        + "    const int    py,\n"
         + "    const double centerX,\n"
         + "    const double centerY,\n"
         + "    const double scale,\n"
@@ -88,8 +96,10 @@ public class OpenCLFractalCalculator implements FractalCalculator {
         + "    const double juliaImag,\n"
         + "    const int    maxIterations)\n"
         + "{\n"
-        + "    int px = get_global_id(0);\n"
-        + "    if (px >= width) return;\n"
+        + "    int lx = get_global_id(0);\n"
+        + "    int ly = get_global_id(1);\n"
+        + "    int px = xIni + lx;\n"
+        + "    int py = yIni + ly;\n"
         + "    double zr = centerX + (px - width  * 0.5) * scale;\n"
         + "    double zi = centerY + (py - height * 0.5) * scale;\n"
         + "    int iter = 0;\n"
@@ -101,7 +111,7 @@ public class OpenCLFractalCalculator implements FractalCalculator {
         + "        zr = zr2 - zi2 + juliaReal;\n"
         + "        iter++;\n"
         + "    }\n"
-        + "    result[px] = iter;\n"
+        + "    result[ly * regionW + lx] = iter;\n"
         + "}\n";
 
     private final int maxIterations;
@@ -223,64 +233,75 @@ public class OpenCLFractalCalculator implements FractalCalculator {
     }
 
     @Override
-    public synchronized int[] computeMandelbrot(int y, int width, int height, ViewState view) {
+    public synchronized int[][] computeMandelbrot(int xIni, int xFin, int yIni, int yFin,
+                                                  int width, int height, ViewState view) {
         if (!initialized) {
-            return cpuFallback().computeMandelbrot(y, width, height, view);
+            return cpuFallback().computeMandelbrot(xIni, xFin, yIni, yFin, width, height, view);
         }
-        int[]  row          = new int[width];
+        int rw   = xFin - xIni;
+        int rh   = yFin - yIni;
+        int size = rw * rh;
+        int[] flat = new int[size];
         cl_mem resultBuffer = clCreateBuffer(
-                context, CL_MEM_WRITE_ONLY, (long) width * Sizeof.cl_int, null, null);
+                context, CL_MEM_WRITE_ONLY, (long) size * Sizeof.cl_int, null, null);
         try {
             clSetKernelArg(mandelbrotKernel, 0, Sizeof.cl_mem,    Pointer.to(resultBuffer));
-            clSetKernelArg(mandelbrotKernel, 1, Sizeof.cl_int,    Pointer.to(new int[]{width}));
-            clSetKernelArg(mandelbrotKernel, 2, Sizeof.cl_int,    Pointer.to(new int[]{height}));
-            clSetKernelArg(mandelbrotKernel, 3, Sizeof.cl_int,    Pointer.to(new int[]{y}));
-            clSetKernelArg(mandelbrotKernel, 4, Sizeof.cl_double, Pointer.to(new double[]{view.getCenterX()}));
-            clSetKernelArg(mandelbrotKernel, 5, Sizeof.cl_double, Pointer.to(new double[]{view.getCenterY()}));
-            clSetKernelArg(mandelbrotKernel, 6, Sizeof.cl_double, Pointer.to(new double[]{view.getScale()}));
-            clSetKernelArg(mandelbrotKernel, 7, Sizeof.cl_int,    Pointer.to(new int[]{maxIterations}));
+            clSetKernelArg(mandelbrotKernel, 1, Sizeof.cl_int,    Pointer.to(new int[]{xIni}));
+            clSetKernelArg(mandelbrotKernel, 2, Sizeof.cl_int,    Pointer.to(new int[]{yIni}));
+            clSetKernelArg(mandelbrotKernel, 3, Sizeof.cl_int,    Pointer.to(new int[]{rw}));
+            clSetKernelArg(mandelbrotKernel, 4, Sizeof.cl_int,    Pointer.to(new int[]{width}));
+            clSetKernelArg(mandelbrotKernel, 5, Sizeof.cl_int,    Pointer.to(new int[]{height}));
+            clSetKernelArg(mandelbrotKernel, 6, Sizeof.cl_double, Pointer.to(new double[]{view.getCenterX()}));
+            clSetKernelArg(mandelbrotKernel, 7, Sizeof.cl_double, Pointer.to(new double[]{view.getCenterY()}));
+            clSetKernelArg(mandelbrotKernel, 8, Sizeof.cl_double, Pointer.to(new double[]{view.getScale()}));
+            clSetKernelArg(mandelbrotKernel, 9, Sizeof.cl_int,    Pointer.to(new int[]{maxIterations}));
 
-            clEnqueueNDRangeKernel(commandQueue, mandelbrotKernel, 1,
-                    null, new long[]{width}, null, 0, null, null);
+            clEnqueueNDRangeKernel(commandQueue, mandelbrotKernel, 2,
+                    null, new long[]{rw, rh}, null, 0, null, null);
             clEnqueueReadBuffer(commandQueue, resultBuffer, CL_TRUE, 0,
-                    (long) width * Sizeof.cl_int, Pointer.to(row), 0, null, null);
+                    (long) size * Sizeof.cl_int, Pointer.to(flat), 0, null, null);
         } finally {
             clReleaseMemObject(resultBuffer);
         }
-        return row;
+        return flatToMatrix(flat, rw, rh);
     }
 
     @Override
-    public synchronized int[] computeJulia(int y, int width, int height, ViewState view) {
+    public synchronized int[][] computeJulia(int xIni, int xFin, int yIni, int yFin,
+                                             int width, int height, ViewState view) {
         if (!initialized) {
-            return cpuFallback().computeJulia(y, width, height, view);
+            return cpuFallback().computeJulia(xIni, xFin, yIni, yFin, width, height, view);
         }
         double jr = juliaReal;
         double ji = juliaImaginary;
-
-        int[]  row          = new int[width];
+        int rw   = xFin - xIni;
+        int rh   = yFin - yIni;
+        int size = rw * rh;
+        int[] flat = new int[size];
         cl_mem resultBuffer = clCreateBuffer(
-                context, CL_MEM_WRITE_ONLY, (long) width * Sizeof.cl_int, null, null);
+                context, CL_MEM_WRITE_ONLY, (long) size * Sizeof.cl_int, null, null);
         try {
-            clSetKernelArg(juliaKernel, 0, Sizeof.cl_mem,    Pointer.to(resultBuffer));
-            clSetKernelArg(juliaKernel, 1, Sizeof.cl_int,    Pointer.to(new int[]{width}));
-            clSetKernelArg(juliaKernel, 2, Sizeof.cl_int,    Pointer.to(new int[]{height}));
-            clSetKernelArg(juliaKernel, 3, Sizeof.cl_int,    Pointer.to(new int[]{y}));
-            clSetKernelArg(juliaKernel, 4, Sizeof.cl_double, Pointer.to(new double[]{view.getCenterX()}));
-            clSetKernelArg(juliaKernel, 5, Sizeof.cl_double, Pointer.to(new double[]{view.getCenterY()}));
-            clSetKernelArg(juliaKernel, 6, Sizeof.cl_double, Pointer.to(new double[]{view.getScale()}));
-            clSetKernelArg(juliaKernel, 7, Sizeof.cl_double, Pointer.to(new double[]{jr}));
-            clSetKernelArg(juliaKernel, 8, Sizeof.cl_double, Pointer.to(new double[]{ji}));
-            clSetKernelArg(juliaKernel, 9, Sizeof.cl_int,    Pointer.to(new int[]{maxIterations}));
+            clSetKernelArg(juliaKernel, 0,  Sizeof.cl_mem,    Pointer.to(resultBuffer));
+            clSetKernelArg(juliaKernel, 1,  Sizeof.cl_int,    Pointer.to(new int[]{xIni}));
+            clSetKernelArg(juliaKernel, 2,  Sizeof.cl_int,    Pointer.to(new int[]{yIni}));
+            clSetKernelArg(juliaKernel, 3,  Sizeof.cl_int,    Pointer.to(new int[]{rw}));
+            clSetKernelArg(juliaKernel, 4,  Sizeof.cl_int,    Pointer.to(new int[]{width}));
+            clSetKernelArg(juliaKernel, 5,  Sizeof.cl_int,    Pointer.to(new int[]{height}));
+            clSetKernelArg(juliaKernel, 6,  Sizeof.cl_double, Pointer.to(new double[]{view.getCenterX()}));
+            clSetKernelArg(juliaKernel, 7,  Sizeof.cl_double, Pointer.to(new double[]{view.getCenterY()}));
+            clSetKernelArg(juliaKernel, 8,  Sizeof.cl_double, Pointer.to(new double[]{view.getScale()}));
+            clSetKernelArg(juliaKernel, 9,  Sizeof.cl_double, Pointer.to(new double[]{jr}));
+            clSetKernelArg(juliaKernel, 10, Sizeof.cl_double, Pointer.to(new double[]{ji}));
+            clSetKernelArg(juliaKernel, 11, Sizeof.cl_int,    Pointer.to(new int[]{maxIterations}));
 
-            clEnqueueNDRangeKernel(commandQueue, juliaKernel, 1,
-                    null, new long[]{width}, null, 0, null, null);
+            clEnqueueNDRangeKernel(commandQueue, juliaKernel, 2,
+                    null, new long[]{rw, rh}, null, 0, null, null);
             clEnqueueReadBuffer(commandQueue, resultBuffer, CL_TRUE, 0,
-                    (long) width * Sizeof.cl_int, Pointer.to(row), 0, null, null);
+                    (long) size * Sizeof.cl_int, Pointer.to(flat), 0, null, null);
         } finally {
             clReleaseMemObject(resultBuffer);
         }
-        return row;
+        return flatToMatrix(flat, rw, rh);
     }
 
     /** Libera el contexto OpenCL, la cola y los kernels. */
@@ -307,6 +328,14 @@ public class OpenCLFractalCalculator implements FractalCalculator {
         MandelbrotCalculator calc = new MandelbrotCalculator(maxIterations);
         calc.setJuliaConstant(juliaReal, juliaImaginary);
         return calc;
+    }
+
+    private static int[][] flatToMatrix(int[] flat, int rw, int rh) {
+        int[][] matrix = new int[rh][rw];
+        for (int ry = 0; ry < rh; ry++) {
+            System.arraycopy(flat, ry * rw, matrix[ry], 0, rw);
+        }
+        return matrix;
     }
 
 }

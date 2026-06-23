@@ -84,41 +84,55 @@ public class MandelbrotCalculator implements FractalCalculator {
     }
 
     /**
-     * Calcula el número de iteraciones para cada píxel de la fila {@code y} en una vista de Mandelbrot.
+     * Calcula el número de iteraciones para el rectángulo {@code [xIni,xFin) × [yIni,yFin)}
+     * en una vista de Mandelbrot.
      *
-     * @param y      fila de píxeles a calcular
-     * @param width  anchura de la imagen en píxeles
-     * @param height altura de la imagen en píxeles
+     * @param xIni   columna inicial (inclusive)
+     * @param xFin   columna final   (exclusive)
+     * @param yIni   fila inicial    (inclusive)
+     * @param yFin   fila final      (exclusive)
+     * @param width  anchura total de la imagen
+     * @param height altura total de la imagen
      * @param view   estado de vista con centro y escala
-     * @return arreglo de iteraciones de tamaño {@code [width]}
+     * @return matriz de iteraciones de tamaño {@code [yFin-yIni][xFin-xIni]}
      */
-    public int[] computeMandelbrot(int y, int width, int height, ViewState view) {
-        double imaginary = view.pixelToImaginary(y, height);
-        int[] row = new int[width];
-        for (int x = 0; x < width; x++) {
-            double real = view.pixelToReal(x, width);
-            row[x] = iterate(0.0, 0.0, real, imaginary);
+    public int[][] computeMandelbrot(int xIni, int xFin, int yIni, int yFin, int width, int height, ViewState view) {
+        int rh = yFin - yIni;
+        int rw = xFin - xIni;
+        int[][] result = new int[rh][rw];
+        for (int y = yIni; y < yFin; y++) {
+            double imaginary = view.pixelToImaginary(y, height);
+            for (int x = xIni; x < xFin; x++) {
+                result[y - yIni][x - xIni] = iterate(0.0, 0.0, view.pixelToReal(x, width), imaginary);
+            }
         }
-        return row;
+        return result;
     }
 
     /**
-     * Calcula el número de iteraciones para cada píxel de la fila {@code y} en una vista de Julia.
+     * Calcula el número de iteraciones para el rectángulo {@code [xIni,xFin) × [yIni,yFin)}
+     * en una vista de Julia.
      *
-     * @param y      fila de píxeles a calcular
-     * @param width  anchura de la imagen en píxeles
-     * @param height altura de la imagen en píxeles
+     * @param xIni   columna inicial (inclusive)
+     * @param xFin   columna final   (exclusive)
+     * @param yIni   fila inicial    (inclusive)
+     * @param yFin   fila final      (exclusive)
+     * @param width  anchura total de la imagen
+     * @param height altura total de la imagen
      * @param view   estado de vista con centro y escala
-     * @return arreglo de iteraciones de tamaño {@code [width]}
+     * @return matriz de iteraciones de tamaño {@code [yFin-yIni][xFin-xIni]}
      */
-    public int[] computeJulia(int y, int width, int height, ViewState view) {
-        double imaginary = view.pixelToImaginary(y, height);
-        int[] row = new int[width];
-        for (int x = 0; x < width; x++) {
-            double real = view.pixelToReal(x, width);
-            row[x] = iterate(real, imaginary, juliaReal, juliaImaginary);
+    public int[][] computeJulia(int xIni, int xFin, int yIni, int yFin, int width, int height, ViewState view) {
+        int rh = yFin - yIni;
+        int rw = xFin - xIni;
+        int[][] result = new int[rh][rw];
+        for (int y = yIni; y < yFin; y++) {
+            double imaginary = view.pixelToImaginary(y, height);
+            for (int x = xIni; x < xFin; x++) {
+                result[y - yIni][x - xIni] = iterate(view.pixelToReal(x, width), imaginary, juliaReal, juliaImaginary);
+            }
         }
-        return row;
+        return result;
     }
 
     /**
